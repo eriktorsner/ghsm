@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ghsm entrypoint. Resolves its install root, then dispatches.
+set -euo pipefail
+
+ghsm_resolve_root() {
+  local source="${BASH_SOURCE[0]}"
+  local dir
+  while [[ -L "$source" ]]; do
+    dir="$(cd "$(dirname "$source")" && pwd)"
+    source="$(readlink "$source")"
+    case "$source" in
+      /*) ;;
+      *) source="${dir}/${source}" ;;
+    esac
+  done
+  cd "$(dirname "$source")/.." && pwd
+}
+
+GHSM_ROOT="$(ghsm_resolve_root)"
+export GHSM_ROOT
+
+# shellcheck disable=SC1091
+source "${GHSM_ROOT}/lib/version.sh"
+# shellcheck disable=SC1091
+source "${GHSM_ROOT}/lib/ui.sh"
+# shellcheck disable=SC1091
+source "${GHSM_ROOT}/lib/util.sh"
+# shellcheck disable=SC1091
+source "${GHSM_ROOT}/lib/deps.sh"
+# shellcheck disable=SC1091
+source "${GHSM_ROOT}/lib/self_update.sh"
+# shellcheck disable=SC1091
+source "${GHSM_ROOT}/lib/skills.sh"
+# shellcheck disable=SC1091
+source "${GHSM_ROOT}/lib/cli.sh"
+
+trap util_cleanup EXIT
+cli_main "$@"

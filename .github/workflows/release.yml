@@ -1,0 +1,28 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag against lib/version.sh
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          grep -qx "GHSM_VERSION=\"${ver}\"" lib/version.sh
+      - name: Package
+        run: ./scripts/package.sh
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/ghsm.tar.gz
+            dist/checksums.txt

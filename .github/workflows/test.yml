@@ -1,0 +1,17 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  bash:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prerequisites
+        run: |
+          command -v jq >/dev/null || brew install jq
+          command -v gh >/dev/null || brew install gh
+      - name: Run tests on the system Bash
+        run: /bin/bash tests/run.sh
