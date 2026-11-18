@@ -11,7 +11,7 @@ Usage:
 Commands:
   update           Install or update every skill in skills.json
   add              Install a GitHub skill and record it in skills.json
-  remove           Remove a skill from .agent/skills and from skills.json
+  remove           Remove a skill from .agents/skills and from skills.json
   list             List skills installed in this project
   self-update      Update the ghsm command from GitHub Releases
   completion       Print a shell completion script
@@ -29,11 +29,12 @@ Global flags:
 
 Project files:
   skills.json      Default manifest at the git repository root
-  .agent/skills    Directory skills are installed into
+  .agents/skills   Directory skills are installed into
+  .claude/skills   Relative symlinks to those directories, for Claude Code
 
 A repository can keep more than one manifest. Pass -m or set GHSM_MANIFEST.
 The flag wins when both are set. A relative path is resolved from the
-working directory. Every manifest installs into the same .agent/skills.
+working directory. Every manifest installs into the same .agents/skills.
 
 Environment:
   GHSM_MANIFEST=PATH       Same as --manifest
@@ -65,7 +66,8 @@ Usage:
   ghsm update [skill...] [--check | --force]
 
 Install or update the skills listed in skills.json. Each entry is applied
-with gh skill into the project's .agent/skills directory.
+with gh skill into the project's .agents/skills directory. Each installed
+skill also gets a relative symlink at .claude/skills/<name>.
 
   --check    Report what would change. Do not write files.
   --force    Reinstall every selected skill.
@@ -114,9 +116,10 @@ Usage:
   ghsm remove SKILL
   ghsm remove OWNER/REPO SKILL
 
-Delete the installed skill directory under .agent/skills and drop the matching
-skills.json entry. When several repositories record the same skill name, pass
-the repository as well.
+Delete the installed skill directory under .agents/skills, delete the Claude
+symlink when ghsm created it, and drop the matching skills.json entry. A real
+directory at the Claude path is left alone. When several repositories record
+the same skill name, pass the repository as well.
 
 Examples:
   ghsm remove code-review
@@ -129,7 +132,7 @@ cli_help_list() {
 Usage:
   ghsm list
 
-List skills installed in the project's .agent/skills directory. The MANIFEST
+List skills installed in the project's .agents/skills directory. The MANIFEST
 column shows whether skills.json also records that skill.
 
 Examples:

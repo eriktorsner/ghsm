@@ -34,6 +34,20 @@ case "$cmd" in
     fi
     ;;
   install)
+    dir=""
+    prev=""
+    for arg in "$@"; do
+      if [[ "$prev" == "--dir" ]]; then
+        dir="$arg"
+      fi
+      prev="$arg"
+    done
+    spec="${4:-}"
+    name="${spec%%@*}"
+    if [[ -n "$dir" && -n "$name" && "$name" != -* ]]; then
+      mkdir -p "${dir}/${name}"
+      printf '%s\n' '---' "name: ${name##*/}" '---' > "${dir}/${name}/SKILL.md"
+    fi
     exit 0
     ;;
   update)

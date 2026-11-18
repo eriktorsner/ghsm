@@ -1,7 +1,8 @@
 # Project skill manifest. This file is the gh skill wrapper.
 # CLI parsing, help, and self-update live elsewhere.
 
-SKILLS_DIR_REL=".agent/skills"
+SKILLS_DIR_REL=".agents/skills"
+SKILLS_CLAUDE_REL=".claude/skills"
 SKILLS_MANIFEST_NAME="skills.json"
 
 skills_run_gh() {
@@ -73,6 +74,112 @@ skills_resolve_manifest_path() {
   fi
   dir="$(cd "$dir" && pwd)" || return 1
   SKILLS_MANIFEST="${dir}/${base}"
+}
+
+# Relative symlink target from .claude/skills/<rel> to .agents/skills/<rel>.
+skills_claude_target() {
+  local rel="$1" parent extra ups i prefix
+  parent="$(dirname "$rel")"
+  extra=0
+  if [[ "$parent" != "." ]]; then
+    extra="${parent//[^\/]/}"
+    extra=$((${#extra} + 1))
+  fi
+  ups=$((2 + extra))
+  prefix=""
+  i=0
+  while [[ "$i" -lt "$ups" ]]; do
+    prefix="${prefix}../"
+    i=$((i + 1))
+  done
+  printf '%s%s/%s' "$prefix" "$SKILLS_DIR_REL" "$rel"
+}
+
+skills_dir_under_dest() {
+  local path="$1" dest
+  dest="${SKILLS_DEST%/}"
+  case "$path" in
+    "$dest"/*) printf '%s\n' "${path#"$dest"/}" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prints the absolute directory gh installed for this manifest entry.
+skills_installed_dir() {
+  local repo="$1" skill="$2" list found path base
+  list="$(skills_list_installed_json "$SKILLS_DEST")"
+  found="$(skills_find_installed "$list" "$repo" "$skill" || true)"
+  path=""
+  if [[ -n "$found" ]]; then
+    path="$(printf '%s' "$found" | jq -r '.path // empty')"
+  fi
+  if [[ -n "$path" && -d "$path" && ! -L "$path" ]]; then
+    printf '%s\n' "$path"
+    return 0
+  fi
+  if [[ -d "${SKILLS_DEST}/${skill}" && ! -L "${SKILLS_DEST}/${skill}" ]]; then
+    printf '%s\n' "${SKILLS_DEST}/${skill}"
+    return 0
+  fi
+  base="$(basename "$skill")"
+  if [[ "$base" != "$skill" && -d "${SKILLS_DEST}/${base}" && ! -L "${SKILLS_DEST}/${base}" ]]; then
+    printf '%s\n' "${SKILLS_DEST}/${base}"
+    return 0
+  fi
+  return 1
+}
+
+# Claude Code only reads a skill directory directly under .claude/skills.
+# Point that name at the real copy. Leave a real directory or a foreign symlink alone.
+skills_ensure_claude_link() {
+  local repo="$1" skill="$2" dir rel link target current
+  SKILLS_LINK_ERROR=""
+  dir="$(skills_installed_dir "$repo" "$skill")" || {
+    SKILLS_LINK_ERROR="could not find the installed skill directory"
+    return 1
+  }
+  rel="$(skills_dir_under_dest "$dir")" || {
+    SKILLS_LINK_ERROR="installed skill is outside ${SKILLS_DEST}"
+    return 1
+  }
+  if ! skills_valid_skill "$rel"; then
+    SKILLS_LINK_ERROR="refusing to link skill path ${rel}"
+    return 1
+  fi
+  link="${SKILLS_ROOT}/${SKILLS_CLAUDE_REL}/${rel}"
+  target="$(skills_claude_target "$rel")"
+  if [[ -L "$link" ]]; then
+    current="$(readlink "$link")"
+    if [[ "$current" == "$target" ]]; then
+      return 0
+    fi
+    SKILLS_LINK_ERROR="Claude skill link already points elsewhere: ${link}"
+    return 1
+  fi
+  if [[ -e "$link" ]]; then
+    SKILLS_LINK_ERROR="refusing to replace ${link} with a symlink"
+    return 1
+  fi
+  mkdir -p "$(dirname "$link")" || {
+    SKILLS_LINK_ERROR="could not create $(dirname "$link")"
+    return 1
+  }
+  ln -s "$target" "$link" || {
+    SKILLS_LINK_ERROR="could not create symlink ${link}"
+    return 1
+  }
+}
+
+skills_remove_claude_link() {
+  local rel="$1" link target current
+  [[ -n "$rel" ]] || return 0
+  link="${SKILLS_ROOT}/${SKILLS_CLAUDE_REL}/${rel}"
+  [[ -L "$link" ]] || return 0
+  target="$(skills_claude_target "$rel")"
+  current="$(readlink "$link")"
+  if [[ "$current" == "$target" ]]; then
+    rm "$link"
+  fi
 }
 
 skills_project_paths() {
@@ -388,6 +495,13 @@ skills_cmd_update() {
       fi
     fi
 
+    if [[ "$check" -eq 0 && "$status" == "ok" ]]; then
+      if ! skills_ensure_claude_link "$repo" "$skill"; then
+        status="failed"
+        err_text="$SKILLS_LINK_ERROR"
+      fi
+    fi
+
     skills_record_result "$ndjson" "$repo" "$skill" "$operation" "$status" "$err_text"
     i=$((i + 1))
   done
@@ -503,6 +617,10 @@ skills_cmd_add() {
   gh_out="$(skills_run_gh skill install "$repo" "$install_spec" --dir "$SKILLS_DEST" --force 2>&1)" && gh_code=0 || gh_code=$?
   if [[ "$gh_code" -ne 0 ]]; then
     ui_error "gh skill install failed: $(ui_one_line "$gh_out")"
+    return 1
+  fi
+  if ! skills_ensure_claude_link "$repo" "$skill"; then
+    ui_error "installed ${skill} but ${SKILLS_LINK_ERROR}"
     return 1
   fi
   local lock="${SKILLS_ROOT}/.skills.json.lock"
@@ -651,12 +769,15 @@ skills_cmd_remove() {
   if [[ -n "$entry" ]]; then
     skill_path="$(printf '%s' "$entry" | jq -r '.path // ""')"
     skills_safe_remove_dir "$SKILLS_DEST" "$skill_path" || return 1
+    skills_remove_claude_link "$(skills_dir_under_dest "$skill_path" || true)"
   else
-    local base candidate
+    local base candidate rel
     base="$(basename "$skill_name")"
     for candidate in "${SKILLS_DEST}/${skill_name}" "${SKILLS_DEST}/${base}"; do
-      if [[ -d "$candidate" ]]; then
+      if [[ -d "$candidate" && ! -L "$candidate" ]]; then
         skills_safe_remove_dir "$SKILLS_DEST" "$candidate" || return 1
+        rel="$(skills_dir_under_dest "$candidate" || true)"
+        skills_remove_claude_link "$rel"
       fi
     done
   fi

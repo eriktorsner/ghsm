@@ -212,7 +212,13 @@ test_add_update_list_remove() {
   assert_contains "add output" "$TOOL_STDOUT" "added  acme/skills  demo"
   assert_contains "add recorded repo" "$(cat "$PROJECT/skills.json")" "acme/skills"
   assert_contains "add recorded skill" "$(cat "$PROJECT/skills.json")" "demo"
-  assert_contains "add called gh" "$(cat "$GH_FAKE_LOG")" "ARG ${PROJECT}/.agent/skills"
+  assert_contains "add called gh" "$(cat "$GH_FAKE_LOG")" "ARG ${PROJECT}/.agents/skills"
+  if [[ -L "${PROJECT}/.claude/skills/demo" ]]; then
+    ok "add creates claude symlink"
+  else
+    bad "add creates claude symlink"
+  fi
+  assert_eq "claude link target" "../../.agents/skills/demo" "$(readlink "${PROJECT}/.claude/skills/demo")"
 
   run_tool add acme/skills 'demo@v1.2.0'
   assert_eq "add pin status" "0" "$TOOL_CODE"
@@ -222,9 +228,9 @@ test_add_update_list_remove() {
   assert_contains "add stores ref" "$(cat "$PROJECT/skills.json")" "v1.2.0"
   assert_contains "add pin arg" "$(cat "$GH_FAKE_LOG")" "ARG demo@v1.2.0"
 
-  mkdir -p "${PROJECT}/.agent/skills/demo"
-  printf '%s\n' '---' 'name: demo' '---' > "${PROJECT}/.agent/skills/demo/SKILL.md"
-  jq -n --arg path "${PROJECT}/.agent/skills/demo" \
+  mkdir -p "${PROJECT}/.agents/skills/demo"
+  printf '%s\n' '---' 'name: demo' '---' > "${PROJECT}/.agents/skills/demo/SKILL.md"
+  jq -n --arg path "${PROJECT}/.agents/skills/demo" \
     '[{skillName:"demo", sourceURL:"https://github.com/acme/skills/tree/main/demo", version:"v1.2.0", pinned:true, path:$path}]' \
     > "${TEST_BASE}/list.json"
   export GH_FAKE_LIST="${TEST_BASE}/list.json"
@@ -269,16 +275,21 @@ test_add_update_list_remove() {
 
   printf '%s\n' '{"version":1,"skills":[{"repo":"acme/skills","skill":"demo"}]}' > "$PROJECT/skills.json"
   export GH_FAKE_LIST="${TEST_BASE}/list.json"
-  jq -n --arg path "${PROJECT}/.agent/skills/demo" \
+  jq -n --arg path "${PROJECT}/.agents/skills/demo" \
     '[{skillName:"demo", sourceURL:"https://github.com/acme/skills", version:"", pinned:false, path:$path}]' \
     > "$GH_FAKE_LIST"
   run_tool remove demo
   assert_eq "remove status" "0" "$TOOL_CODE"
   assert_contains "remove output" "$TOOL_STDOUT" "removed  acme/skills  demo"
-  if [[ ! -d "${PROJECT}/.agent/skills/demo" ]]; then
+  if [[ ! -d "${PROJECT}/.agents/skills/demo" ]]; then
     ok "remove deletes directory"
   else
     bad "remove deletes directory"
+  fi
+  if [[ ! -e "${PROJECT}/.claude/skills/demo" && ! -L "${PROJECT}/.claude/skills/demo" ]]; then
+    ok "remove deletes claude symlink"
+  else
+    bad "remove deletes claude symlink"
   fi
   count="$(jq '.skills | length' "$PROJECT/skills.json")"
   assert_eq "remove drops manifest entry" "0" "$count"
@@ -390,7 +401,7 @@ test_invalid_manifest_and_git_root() {
   code=$?
   set -e
   assert_eq "git root list status" "0" "$code"
-  assert_contains "git root path" "$(cat "$out")" "${repo}/.agent/skills"
+  assert_contains "git root path" "$(cat "$out")" "${repo}/.agents/skills"
   rm -rf "$base" "$out" "$err"
   unset GHSM_GH GH_FAKE_LOG || true
 }
@@ -631,11 +642,29 @@ test_installer() {
   rm -rf "$base"
 }
 
+test_claude_link_leaves_real_directory() {
+  new_project
+  mkdir -p "${PROJECT}/.claude/skills/demo"
+  printf 'ours\n' > "${PROJECT}/.claude/skills/demo/SKILL.md"
+  run_tool add acme/skills demo
+  assert_eq "real claude dir status" "1" "$TOOL_CODE"
+  assert_contains "real claude dir message" "$TOOL_STDERR" "refusing to replace"
+  assert_contains "real claude dir kept" "$(cat "${PROJECT}/.claude/skills/demo/SKILL.md")" "ours"
+  if [[ ! -e "${PROJECT}/skills.json" ]]; then
+    ok "real claude dir skips manifest"
+  else
+    bad "real claude dir skips manifest"
+  fi
+  rm -rf "$TEST_BASE"
+  unset GHSM_PROJECT_ROOT GHSM_GH GH_FAKE_LOG || true
+}
+
 syntax_check
 test_version_and_help
 test_version_compare
 test_missing_dependency
 test_add_update_list_remove
+test_claude_link_leaves_real_directory
 test_custom_manifest
 test_invalid_manifest_and_git_root
 test_update_notice_does_not_block

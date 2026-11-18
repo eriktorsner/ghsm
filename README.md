@@ -1,6 +1,6 @@
 # ghsm
 
-`ghsm` installs and updates agent skills for a project. The project keeps a `skills.json` manifest. The command applies that manifest with [`gh skill`](https://cli.github.com/manual/gh_skill) into `.agent/skills`.
+`ghsm` installs and updates agent skills for a project. The project keeps a `skills.json` manifest. The command applies that manifest with [`gh skill`](https://cli.github.com/manual/gh_skill). The files go in `.agents/skills/<name>/`. Claude Code does not read that directory, so each installed skill also gets a relative symlink at `.claude/skills/<name>`.
 
 It is a Bash program. It runs on macOS and Linux, including the Bash 3.2 that ships with macOS. It needs the GitHub CLI (`gh`) and `jq`.
 
@@ -40,7 +40,9 @@ From a checkout, without a GitHub release:
 
 `repo` is a GitHub `owner/name`. `skill` is a skill name or a path inside that repository. `ref` pins a tag or commit. Without `ref`, `gh skill` uses the latest release and then the default branch.
 
-The default file is `skills.json` at the repository root. Pass another path when one repository needs more than one list. `-m` / `--manifest` overrides `GHSM_MANIFEST`. A relative path is resolved from the working directory. Skills from every manifest install into that repository's `.agent/skills`.
+The default file is `skills.json` at the repository root. Pass another path when one repository needs more than one list. `-m` / `--manifest` overrides `GHSM_MANIFEST`. A relative path is resolved from the working directory. Skills from every manifest install into that repository's `.agents/skills`.
+
+A skill the team writes itself stays a normal directory in `.agents/skills`. ghsm does not record it and does not remove it. Commit the manifest, the installed skill directories, and the Claude symlinks. A new clone and a new worktree then contain both the files and the links.
 
 ```bash
 ghsm --manifest teams/review.json update
@@ -57,7 +59,7 @@ ghsm list
 ghsm remove code-review
 ```
 
-`update` walks the manifest. `update --check` reports what would change. `update --force` reinstalls every selected skill. `list` reads `.agent/skills`. `remove` deletes that directory and the manifest entry.
+`update` walks the manifest. `update --check` reports what would change. `update --force` reinstalls every selected skill. `list` reads `.agents/skills`. `remove` deletes that directory, the Claude symlink ghsm created, and the manifest entry. A real directory already at `.claude/skills/<name>` is left in place and the command fails.
 
 `--json` prints a JSON object on stdout. `-q` hides notices. `-v` prints the `gh` command.
 
